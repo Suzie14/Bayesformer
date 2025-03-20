@@ -3,6 +3,7 @@
 *.npy
 *.pkl
 *.png
+*.pt
 *__nb*
 
 __tmp*

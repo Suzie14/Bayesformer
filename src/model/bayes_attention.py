@@ -3,13 +3,14 @@
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import typing
 
 
-_Head = typing.TypeVar("_Head", bound="Head")
+_BayesHead = typing.TypeVar("_BayesHead", bound="BayesHead")
 
 
-class Head(nn.Module):
+class BayesHead(nn.Module):
     """
     A single head of multi-head attention.
 
@@ -25,7 +26,7 @@ class Head(nn.Module):
     """
 
     def __init__(
-        self: _Head,
+        self: _BayesHead,
         head_input_dimension: int,
         head_size: int,
         head_output_dimension: int,
@@ -37,7 +38,7 @@ class Head(nn.Module):
         Initialize class instance.
 
         Args:
-            self (_Head): Class instance.
+            self (_BayesHead): Class instance.
             head_input_dimension (int): Dimension of the input.
             head_size (int): Size of the attention head.
             head_output_dimension (int): Dimension of the output.
@@ -54,11 +55,11 @@ class Head(nn.Module):
             "tril", torch.tril(torch.ones(context_length, context_length), diagonal=1)
         )  # Not trainable parameters
         self.head_size = head_size
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = dropout
         self.mask = mask
 
     def forward(
-        self: _Head,
+        self: _BayesHead,
         q: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
@@ -67,7 +68,7 @@ class Head(nn.Module):
         Forward method to get the output of the model.
 
         Args:
-            self (_Head): Class instance.
+            self (_BayesHead): Class instance.
             q (torch.Tensor): Query tensor.
             k (torch.Tensor): Key tensor.
             v (torch.Tensor): Value tensor.
@@ -81,13 +82,14 @@ class Head(nn.Module):
         # I = head_input_dimension
         # H = head_size
         # O = head_output_dimension
-        K = self.key(self.dropout(k))  # (B, T, H)
-        Q = self.query(self.dropout(q))  # (B, T, H)
-        V = self.value(self.dropout(v))  # (B, T, O)
+        K = self.key(F.dropout(k, p=self.dropout, training=True))  # (B, T, H)
+        Q = self.query(F.dropout(q, p=self.dropout, training=True))  # (B, T, H)
+        V = self.value(F.dropout(v, p=self.dropout, training=True))  # (B, T, O)
         attention_scores = Q @ K.transpose(1, 2)  # (B, T, H) @ (B, H, T) -> (B, T, T)
+        attention_scores = attention_scores * self.head_size**-0.5  # (B, T, T)
         if self.mask:
             masked_attention_scores = attention_scores.masked_fill(
-                self.tril[:T, :T] == 0, 1e-9
+                self.tril[:T, :T] == 0, float("-inf")
             )  # (B, T, T)
         else:
             masked_attention_scores = attention_scores  # (B, T, T)
@@ -98,15 +100,17 @@ class Head(nn.Module):
         return context_vectors
 
 
-_MultiHeadAttention = typing.TypeVar("_MultiHeadAttention", bound="MultiHeadAttention")
+_BayesMultiHeadAttention = typing.TypeVar(
+    "_BayesMultiHeadAttention", bound="BayesMultiHeadAttention"
+)
 
 
-class MultiHeadAttention(nn.Module):
+class BayesMultiHeadAttention(nn.Module):
     """
     Multi-head attention.
 
     Args:
-        num_heads (int): Number of heads.
+        nb_heads (int): Number of heads.
         embedding_dimension (int): Dimension of the embedding (=input).
         head_size (int): The size of the head.
         head_output_dimension (int): The dimension of the output of the head.
@@ -118,8 +122,8 @@ class MultiHeadAttention(nn.Module):
     """
 
     def __init__(
-        self: _MultiHeadAttention,
-        num_heads: int,
+        self: _BayesMultiHeadAttention,
+        nb_heads: int,
         embedding_dimension: int,
         head_size: int,
         head_output_dimension: int,
@@ -131,8 +135,8 @@ class MultiHeadAttention(nn.Module):
         Initialize class instance.
 
         Args:
-            self (_MultiHeadAttention): Class instance.
-            num_heads (int): Number of heads.
+            self (_BayesMultiHeadAttention): Class instance.
+            nb_heads (int): Number of heads.
             embedding_dimension (int): Dimension of the embedding (=input).
             head_size (int): Size of the attention head.
             head_output_dimension (int): Dimension of the output.
@@ -143,7 +147,7 @@ class MultiHeadAttention(nn.Module):
         super().__init__()
         self.heads = nn.ModuleList(
             [
-                Head(
+                BayesHead(
                     head_input_dimension=embedding_dimension,
                     head_size=head_size,
                     head_output_dimension=head_output_dimension,
@@ -151,14 +155,14 @@ class MultiHeadAttention(nn.Module):
                     dropout=dropout,
                     mask=mask,
                 )
-                for _ in range(num_heads)
+                for _ in range(nb_heads)
             ]
         )
-        self.proj = nn.Linear(num_heads * head_output_dimension, embedding_dimension)
-        self.dropout = nn.Dropout(dropout)
+        self.proj = nn.Linear(nb_heads * head_output_dimension, embedding_dimension)
+        self.dropout = dropout
 
     def forward(
-        self: _MultiHeadAttention,
+        self: _BayesMultiHeadAttention,
         q: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
@@ -179,7 +183,13 @@ class MultiHeadAttention(nn.Module):
         # B = batch_size
         # T = context_length
         # C = embedding_dimension
-        out = torch.cat([self.dropout(h(q=q, k=k, v=v)) for h in self.heads], dim=-1)
+        out = torch.cat(
+            [
+                F.dropout(h(q=q, k=k, v=v), p=self.dropout, training=True)
+                for h in self.heads
+            ],
+            dim=-1,
+        )
         out = self.proj(out)
         return out  # Output : (B, T, C)
 
@@ -229,15 +239,17 @@ class NormLayer(nn.Module):
         # T = length
         # C = dimension
         mean = x.mean(dim=-1, keepdim=True)  # Mean : (B, T, C)
-        std = x.std(dim=-1, keepdim=True)  # Standard deviation : (B, T, C)
+        std = torch.sqrt(
+            torch.var(x, dim=-1, unbiased=False, keepdim=True)
+        )  # Standard deviation : (B, T, C)
         x_normalized = (x - mean) / (std + self.eps)  # Normalized tensor : (B, T, C)
         return self.gamma * x_normalized + self.beta  # Output : (B, T, C)
 
 
-_FeedForward = typing.TypeVar("_FeedForward", bound="FeedForward")
+_BayesFeedForward = typing.TypeVar("_BayesFeedForward", bound="BayesFeedForward")
 
 
-class FeedForward(nn.Module):
+class BayesFeedForward(nn.Module):
     """
     Feed-forward layer.
 
@@ -251,7 +263,7 @@ class FeedForward(nn.Module):
     """
 
     def __init__(
-        self: _FeedForward,
+        self: _BayesFeedForward,
         input_dimension: int,
         hidden_dimension: int,
         output_dimension: int,
@@ -261,7 +273,7 @@ class FeedForward(nn.Module):
         Initialize the feed-forward network.
 
         Args:
-            self (_FeedForward): Class instance.
+            self (_BayesFeedForward): Class instance.
             input_dimension (int): Dimension of the input tensor.
             hidden_dimension (int): Hidden dimension of the network.
             output_dimension (int): Dimension of the output tensor.
@@ -273,14 +285,14 @@ class FeedForward(nn.Module):
             nn.Tanh(),
             nn.Linear(hidden_dimension, output_dimension),
         )
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = dropout
 
-    def forward(self: _FeedForward, x: torch.Tensor) -> torch.Tensor:
+    def forward(self: _BayesFeedForward, x: torch.Tensor) -> torch.Tensor:
         """
         Forward method to compute the output of the network.
 
         Args:
-            self (_FeedForward): Class instance.
+            self (_BayesFeedForward): Class instance.
             x (torch.Tensor): Input tensor.
 
         Returns:
@@ -291,7 +303,9 @@ class FeedForward(nn.Module):
         # T = context_length
         # I = input_dimension
         # O = output_dimension
-        return self.net(self.dropout(x))  # Output : (B, T, O)
+        return self.net(
+            F.dropout(x, p=self.dropout, training=True)
+        )  # Output : (B, T, O)
 
 
 _PositionalEncoding = typing.TypeVar("_PositionalEncoding", bound="PositionalEncoding")
@@ -313,6 +327,7 @@ class PositionalEncoding(torch.nn.Module):
         self: _PositionalEncoding,
         embedding_dimension: int,
         context_length: int,
+        dropout: float,
     ) -> None:
         """
         Initialize class instance.
@@ -321,6 +336,7 @@ class PositionalEncoding(torch.nn.Module):
             self (_PositionalEncoding): Class instance.
             embedding_dimension (int): Dimension of the embedding.
             context_length (int): Length of the context.
+            dropout (float): Dropout rate.
         """
         super().__init__()
         pe = torch.zeros(context_length, embedding_dimension)
@@ -334,6 +350,7 @@ class PositionalEncoding(torch.nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         self.register_buffer("pe", pe.unsqueeze(0))
+        self.dropout = dropout
 
     def forward(self: _PositionalEncoding, x: torch.Tensor) -> torch.Tensor:
         """
@@ -346,4 +363,4 @@ class PositionalEncoding(torch.nn.Module):
         Returns:
             torch.Tensor: Embedded tensor.
         """
-        return self.pe[:, : x.size(1)]
+        return x + F.dropout(self.pe[:, : x.size(1)], p=self.dropout, training=True)

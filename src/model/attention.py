@@ -82,15 +82,14 @@ class Head(nn.Module):
         Q = self.query(q)  # (B, T, H)
         V = self.value(v)  # (B, T, O)
         attention_scores = Q @ K.transpose(1, 2)  # (B, T, H) @ (B, H, T) -> (B, T, T)
+        attention_scores = attention_scores * self.head_size**-0.5  # (B, T, T)
         if self.mask:
             masked_attention_scores = attention_scores.masked_fill(
-                self.tril[:T, :T] == 0, 1e-9
+                self.tril[:T, :T] == 0, float("-inf")
             )  # (B, T, T)
         else:
             masked_attention_scores = attention_scores  # (B, T, T)
-        attention_weights = torch.softmax(
-            masked_attention_scores * self.head_size**-0.5, dim=-1
-        )  # (B, T, T)
+        attention_weights = torch.softmax(masked_attention_scores, dim=-1)  # (B, T, T)
         context_vectors = attention_weights @ V  # (B, T, T) @ (B, T, O) -> (B, T, O)
         return context_vectors
 
@@ -103,7 +102,7 @@ class MultiHeadAttention(nn.Module):
     Multi-head attention.
 
     Args:
-        num_heads (int): Number of heads.
+        nb_heads (int): Number of heads.
         embedding_dimension (int): Dimension of the embedding (=input).
         head_size (int): The size of the head.
         head_output_dimension (int): The dimension of the output of the head.
@@ -116,7 +115,7 @@ class MultiHeadAttention(nn.Module):
 
     def __init__(
         self: _MultiHeadAttention,
-        num_heads: int,
+        nb_heads: int,
         embedding_dimension: int,
         head_size: int,
         head_output_dimension: int,
@@ -128,7 +127,7 @@ class MultiHeadAttention(nn.Module):
 
         Args:
             self (_MultiHeadAttention): Class instance.
-            num_heads (int): Number of heads.
+            nb_heads (int): Number of heads.
             embedding_dimension (int): Dimension of the embedding (=input).
             head_size (int): Size of the attention head.
             head_output_dimension (int): Dimension of the output.
@@ -145,10 +144,10 @@ class MultiHeadAttention(nn.Module):
                     context_length=context_length,
                     mask=mask,
                 )
-                for _ in range(num_heads)
+                for _ in range(nb_heads)
             ]
         )
-        self.proj = nn.Linear(num_heads * head_output_dimension, embedding_dimension)
+        self.proj = nn.Linear(nb_heads * head_output_dimension, embedding_dimension)
 
     def forward(
         self: _MultiHeadAttention,
@@ -222,7 +221,9 @@ class NormLayer(nn.Module):
         # T = length
         # C = dimension
         mean = x.mean(dim=-1, keepdim=True)  # Mean : (B, T, C)
-        std = x.std(dim=-1, keepdim=True)  # Standard deviation : (B, T, C)
+        std = torch.sqrt(
+            torch.var(x, dim=-1, unbiased=False, keepdim=True)
+        )  # Standard deviation : (B, T, C)
         x_normalized = (x - mean) / (std + self.eps)  # Normalized tensor : (B, T, C)
         return self.gamma * x_normalized + self.beta  # Output : (B, T, C)
 
@@ -336,4 +337,4 @@ class PositionalEncoding(torch.nn.Module):
         Returns:
             torch.Tensor: Embedded tensor.
         """
-        return self.pe[:, : x.size(1)]
+        return x + self.pe[:, : x.size(1)]
