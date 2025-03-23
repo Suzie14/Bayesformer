@@ -169,11 +169,11 @@ class FeedForward(nn.Module):
         self,
         d_model,
         dim_feedforward,
-        dropout,
+        bayes_dropout,
     ):
         super().__init__()
         # Bayesian
-        self.dropout = dropout
+        self.bayes_dropout = bayes_dropout
         self.net = nn.Sequential(
             nn.Linear(d_model, dim_feedforward),
             nn.ReLU(),
@@ -181,9 +181,8 @@ class FeedForward(nn.Module):
         )
 
     def forward(self, x):
-        out = self.net(x)
-        if self.dropout is not None:
-            return F.dropout(out, p=self.dropout, training=True)
+        if self.bayes_dropout is not None:
+            return self.net(F.dropout(x, p=self.bayes_dropout, training=True))
         else:
             return self.net(x)
 
