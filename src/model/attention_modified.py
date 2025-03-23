@@ -96,6 +96,7 @@ class Head(nn.Module):
     def forward(self, x, mask=None):
         # T, B, _ = x.shape
         if self.bayes:
+            # print("bayes")
             Q = self.W_q(F.dropout(x, p=self.bayes_dropout, training=True))
             K = self.W_k(F.dropout(x, p=self.bayes_dropout, training=True))
             V = self.W_v(F.dropout(x, p=self.bayes_dropout, training=True))
@@ -140,6 +141,7 @@ class MultiHeadAttention(nn.Module):
 
     def forward(self, x, mask=None):
         if self.bayes:
+            # print("bayes")
             heads_out = torch.cat(
                 [
                     F.dropout(
@@ -167,27 +169,23 @@ class FeedForward(nn.Module):
         self,
         d_model,
         dim_feedforward,
-        dropout=0.1,
+        dropout,
     ):
         super().__init__()
         # Bayesian
-        if dropout is not None:
-            self.net = nn.Sequential(
-                nn.Linear(d_model, dim_feedforward),
-                nn.ReLU(),
-                nn.Linear(dim_feedforward, d_model),
-                nn.Dropout(dropout),
-            )
-        # Not Bayesian
-        else:
-            self.net = nn.Sequential(
-                nn.Linear(d_model, dim_feedforward),
-                nn.ReLU(),
-                nn.Linear(dim_feedforward, d_model),
-            )
+        self.dropout = dropout
+        self.net = nn.Sequential(
+            nn.Linear(d_model, dim_feedforward),
+            nn.ReLU(),
+            nn.Linear(dim_feedforward, d_model),
+        )
 
     def forward(self, x):
-        return self.net(x)
+        out = self.net(x)
+        if self.dropout is not None:
+            return F.dropout(out, p=self.dropout, training=True)
+        else:
+            return self.net(x)
 
 
 class TransformerBlock(nn.Module):
@@ -210,7 +208,7 @@ class TransformerBlock(nn.Module):
             d_model, n_heads, d_ff=dim_feedforward, causal=causal
         )
         self.norm1 = nn.LayerNorm(d_model)
-        self.ff = FeedForward(d_model, dim_feedforward, dropout)
+        self.ff = FeedForward(d_model, dim_feedforward, bayes_dropout)
         self.norm2 = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
         self.bayes = bayes
@@ -323,6 +321,7 @@ class MyTransformer(nn.Module):
         """
         # 1) Embed => (T, B, d_model)
         if self.bayes:
+            # print("bayes")
             x = F.dropout(
                 self.embedding(src), p=self.bayes_dropout, training=True
             ) * math.sqrt(self.d_model)
@@ -336,6 +335,7 @@ class MyTransformer(nn.Module):
         # 4) Pass through N layers
         for layer in self.layers:
             if self.bayes:
+                # print("bayes")
                 x = F.dropout(
                     layer(x, mask=mask), p=self.bayes_dropout, training=True
                 )
