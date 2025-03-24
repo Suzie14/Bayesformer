@@ -18,9 +18,7 @@ def sample_datapoint(num_digits: int = 3) -> tuple[str, str]:
     return (a_str + "+" + b_str + "=", str(sum_int))
 
 
-def create_dataset(
-    nb_samples: int, num_digits: int = 3
-) -> list[tuple[str, str]]:
+def create_dataset(nb_samples: int, num_digits: int = 3) -> list[tuple[str, str]]:
     return [sample_datapoint(num_digits) for _ in range(nb_samples)]
 
 
@@ -34,16 +32,13 @@ def pad(
     for x in token_list:
         if type_list == "prompts":
             out.append(
-                [tokenizer.token_to_id[constants.PAD_TOKEN]]
-                * (max_length - len(x))
-                + x
+                [tokenizer.token_to_id[constants.PAD_TOKEN]] * (max_length - len(x)) + x
             )
         if type_list == "answers":
             out.append(
                 x
                 + [tokenizer.token_to_id[constants.EOS_TOKEN]]
-                + [tokenizer.token_to_id[constants.PAD_TOKEN]]
-                * (max_length - len(x))
+                + [tokenizer.token_to_id[constants.PAD_TOKEN]] * (max_length - len(x))
             )
     return out, max_length
 
@@ -65,12 +60,3 @@ def get_batch(
     X = torch.stack([torch.tensor(x) for x in padded_prompts], 1)
     Y = torch.stack([torch.tensor(x) for x in padded_answers], 1)
     return X, Y, prompt_length, answers_length, prompts, answers
-
-    data = data_train if split == "train" else data_test
-    prompts = [tokenizer.encode(data[i][0]) for i in range(i, i + batch_size)]
-    padded_prompts, length_prompts = pad(prompts, "prompts")
-    answers = [tokenizer.encode(data[i][1]) for i in range(i, i + batch_size)]
-    padded_answers, length_answers = pad(answers, "answers")
-    X = torch.stack([torch.tensor(x) for x in padded_prompts], 1)
-    Y = torch.stack([torch.tensor(x) for x in padded_answers], 1)
-    return X, Y, length_prompts, length_answers

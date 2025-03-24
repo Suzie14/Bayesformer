@@ -1,22 +1,36 @@
 """Class and functions for the tokenizers."""
 
-import typing
-
+import abc
 import regex as re
 
 from src.configs import constants
 
-_CharacterLevelTokenizer = typing.TypeVar(
-    "_CharacterLevelTokenizer", bound="CharacterLevelTokenizer"
-)
+
+class Tokenizer(abc.ABC):
+    """Abstract class for tokenizers."""
+
+    @abc.abstractmethod
+    def encode(self, text: str) -> list[int]:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def decode(self, token_list: list[int]) -> str:
+        raise NotImplementedError
 
 
-class CharacterLevelTokenizer:
+###############################################################
+#                                                             #
+#                  CHARACTER-LEVEL TOKENIZER                  #
+#                                                             #
+###############################################################
+
+
+class CharacterLevelTokenizer(Tokenizer):
     """
     character-level
     """
 
-    def __init__(self: _CharacterLevelTokenizer):
+    def __init__(self):
         self.vocab = (
             [str(x) for x in range(10)]
             + ["+", "="]
@@ -27,31 +41,32 @@ class CharacterLevelTokenizer:
         self.ntokens = len(self.vocab)
         self.pattern = f"[^{re.escape(''.join(self.vocab))}]"
 
-    def clean(self: _CharacterLevelTokenizer, text: str) -> str:
+    def clean(self, text: str) -> str:
         """
         removes all characters not in the vocabulary
         """
         out = re.sub(self.pattern, "", text)
         return out
 
-    def pre_tokenization(
-        self: _CharacterLevelTokenizer, text: str
-    ) -> list[str]:
+    def pre_tokenization(self, text: str) -> list[str]:
         """
         character-level
         """
         return [c for c in text]
 
-    def encode(self: _CharacterLevelTokenizer, text: str) -> list[int]:
+    def encode(self, text: str) -> list[int]:
         text_list = self.pre_tokenization(self.clean(text))
         return [self.token_to_id[c] for c in text_list]
 
-    def decode(self: _CharacterLevelTokenizer, token_list: list[int]) -> str:
+    def decode(self, token_list: list[int]) -> str:
         return "".join([self.id_to_token[x] for x in token_list])
 
 
-#######################################################################
-#######################################################################
+###############################################################
+#                                                             #
+#                 REVERSED-PAIRING TOKENIZER                  #
+#                                                             #
+###############################################################
 
 
 def remove_leading_zeros(s: str) -> str:
@@ -207,8 +222,7 @@ class Encoder:
         first_pad_0, second_pad_0 = pad_equally_0(first, second)
         # concatenante the corresponding tens ("021";"352"-> "03";"25";"12")
         list_tokens = [
-            "".join([tok1, tok2])
-            for tok1, tok2 in zip(first_pad_0, second_pad_0)
+            "".join([tok1, tok2]) for tok1, tok2 in zip(first_pad_0, second_pad_0)
         ]
         # encode the addition and reverse to bgin by the units
         encoded_addition = [
@@ -230,9 +244,7 @@ class Encoder:
             list[int]: list of encoded tokens
         """
 
-        return [
-            self.vocabulary.token_to_id[digit] for digit in number_str[::-1]
-        ]
+        return [self.vocabulary.token_to_id[digit] for digit in number_str[::-1]]
 
 
 class Decoder:
@@ -316,23 +328,19 @@ class Decoder:
         Returns:
             str: Decoded string
         """
-        token_str = "".join(
-            [self.vocabulary.id_to_token[id_] for id_ in ids_list]
-        )
+        token_str = "".join([self.vocabulary.id_to_token[id_] for id_ in ids_list])
         # input is an addition ("1+1=") or a statement ("1+1=2")
         if "=" in token_str:
             # print(token_str)
             addition, result = token_str.split("=")
-            return "".join(
-                [self._decode_addition(addition), self._decode_end(result)]
-            )
+            return "".join([self._decode_addition(addition), self._decode_end(result)])
 
         # input is a simple number ("123") (not used in the procedure but might be useful)
         else:
             return self._decode_end(token_str)
 
 
-class ReversedPairingTokenizer:
+class ReversedPairingTokenizer(Tokenizer):
     """Tokenizer class of the assignment"""
 
     def __init__(self):

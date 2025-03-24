@@ -33,16 +33,65 @@ def plot_losses(
     plt.show()
 
 
+def plot_comparison_losses(
+    train_losses: list[np.ndarray],
+    valid_losses: list[np.ndarray],
+    names: list[str],
+    ylog: bool = False,
+) -> None:
+    """
+    Compare the evolution of train and valid losses for different models.
+
+    Args:
+        train_losses (list[np.ndarray]): List of train losses for different models.
+        valid_losses (list[np.ndarray]): List of validation losses for different models.
+        names (list[str]): List of names for different models.
+        ylog (bool, optional): If True, use logarithmic scale for y-axis. Defaults to False.
+    """
+    assert (
+        len(train_losses) == len(valid_losses) == len(names)
+    ), "All lists must have the same length"
+    fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+    for i in range(len(train_losses)):
+        axes[0].plot(train_losses[i], label=names[i])
+        axes[1].plot(valid_losses[i], label=names[i])
+    axes[0].set_title("Training Losses")
+    axes[1].set_title("Validation Losses")
+    axes[0].grid(visible=True, which="major", axis="y")
+    axes[1].grid(visible=True, which="major", axis="y")
+    axes[0].set_xlabel("Epoch")
+    axes[1].set_xlabel("Epoch")
+    axes[0].set_ylabel("Loss")
+    axes[1].set_ylabel("Loss")
+    if ylog:
+        axes[0].set_yscale("log")
+        axes[1].set_yscale("log")
+    axes[0].legend(loc="upper right")
+    axes[1].legend(loc="upper right")
+    plt.show()
+
+
 def plot_decision_boundary(
-    model,
-    X,
-    Y,
-    model_type="classic",
-    nsamples=100,
-    nbh=2,
-    cmap="RdBu",
+    model: torch.nn.Module,
+    X: np.ndarray,
+    Y: np.ndarray,
+    model_type: str = "classic",
+    nsamples: int = 100,
+    nbh: int = 2,
+    cmap: str = "RdBu",
 ):
-    """Plot and show learning process in classification"""
+    """
+    Plot decision boundary for a given model.
+
+    Args:
+        model (torch.nn.Module): Model to plot decision boundary for.
+        X (np.ndarray): Input data.
+        Y (np.ndarray): Target data.
+        model_type (str, optional): Type of model. Defaults to "classic".
+        nsamples (int, optional): Number of samples. Defaults to 100.
+        nbh (int, optional): Number of neighbors. Defaults to 2.
+        cmap (str, optional): Colormap. Defaults to "RdBu".
+    """
     h = 0.02 * nbh
     x_min, x_max = X[:, 0].min() - 10 * h, X[:, 0].max() + 10 * h
     y_min, y_max = X[:, 1].min() - 10 * h, X[:, 1].max() + 10 * h
