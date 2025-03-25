@@ -15,12 +15,21 @@ class Head(nn.Module):
         bayes: bool = False,
         bayes_dropout: float | None = None,
     ):
+        """
+        Initialize the Head.
+
+        Args:
+            d_model (int): The dimension of the model.
+            d_ff (int): The dimension of the feed-forward layer.
+            causal (bool, optional): Whether to use causal masking. Defaults to True.
+            bayes (bool, optional): Whether to use Bayesian dropout. Defaults to False.
+            bayes_dropout (float | None, optional): The dropout rate for Bayesian dropout. Defaults to None.
+        """
         super().__init__()
         self.d_head = d_ff
         self.causal = causal
         self.bayes = bayes
         self.bayes_dropout = bayes_dropout
-
         self.W_q = nn.Linear(d_model, d_ff, bias=False)
         self.W_k = nn.Linear(d_model, d_ff, bias=False)
         self.W_v = nn.Linear(d_model, d_ff, bias=False)
@@ -28,9 +37,17 @@ class Head(nn.Module):
     def forward(
         self, x: torch.Tensor, mask: torch.Tensor | None = None
     ) -> torch.Tensor:
-        # T, B, _ = x.shape
+        """
+        Forward pass through the head.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+            mask (torch.Tensor | None, optional): The mask to use. Defaults to None.
+
+        Returns:
+            torch.Tensor: The output tensor.
+        """
         if self.bayes:
-            # print("bayes")
             Q = self.W_q(F.dropout(x, p=self.bayes_dropout, training=True))
             K = self.W_k(F.dropout(x, p=self.bayes_dropout, training=True))
             V = self.W_v(F.dropout(x, p=self.bayes_dropout, training=True))
@@ -38,7 +55,6 @@ class Head(nn.Module):
             Q = self.W_q(x)  # (T, B, d_head)
             K = self.W_k(x)
             V = self.W_v(x)
-
         scores = (Q.transpose(0, 1) @ K.transpose(0, 1).transpose(1, 2)) / math.sqrt(
             self.d_head
         )
@@ -59,6 +75,17 @@ class MultiHeadAttention(nn.Module):
         bayes_dropout: float | None = None,
         bayes: bool = False,
     ):
+        """
+        Initialize the MultiHeadAttention.
+
+        Args:
+            d_model (int): The dimension of the model.
+            n_heads (int): The number of heads.
+            d_ff (int): The dimension of the feed-forward layer.
+            causal (bool, optional): Whether to use causal masking. Defaults to True.
+            bayes_dropout (float | None, optional): The dropout rate for Bayesian dropout. Defaults to None.
+            bayes (bool, optional): Whether to use Bayesian dropout. Defaults to False.
+        """
         super().__init__()
         assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
         self.d_model = d_model
@@ -67,7 +94,6 @@ class MultiHeadAttention(nn.Module):
         self.causal = causal
         self.bayes = bayes
         self.bayes_dropout = bayes_dropout
-
         self.heads = nn.ModuleList(
             [Head(d_model, self.d_head, causal) for _ in range(n_heads)]
         )
@@ -76,8 +102,17 @@ class MultiHeadAttention(nn.Module):
     def forward(
         self, x: torch.Tensor, mask: torch.Tensor | None = None
     ) -> torch.Tensor:
+        """
+        Forward pass through the multi-head attention.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+            mask (torch.Tensor | None, optional): The mask to use. Defaults to None.
+
+        Returns:
+            torch.Tensor: The output tensor.
+        """
         if self.bayes:
-            # print("bayes")
             heads_out = torch.cat(
                 [
                     F.dropout(head(x, mask), p=self.bayes_dropout, training=True)
@@ -102,6 +137,14 @@ class FeedForward(nn.Module):
         dim_feedforward: int,
         bayes_dropout: float | None = None,
     ):
+        """
+        Initialize the FeedForward.
+
+        Args:
+            d_model (int): The dimension of the model.
+            dim_feedforward (int): The dimension of the feed-forward layer.
+            bayes_dropout (float | None, optional): The dropout rate for Bayesian dropout. Defaults to None.
+        """
         super().__init__()
         # Bayesian
         self.bayes_dropout = bayes_dropout
@@ -112,6 +155,15 @@ class FeedForward(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass through the feed-forward network.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+
+        Returns:
+            torch.Tensor: The output tensor.
+        """
         if self.bayes_dropout is not None:
             return self.net(F.dropout(x, p=self.bayes_dropout, training=True))
         else:
@@ -133,6 +185,18 @@ class TransformerBlock(nn.Module):
         bayes_dropout: float | None = None,
         bayes: bool = False,
     ):
+        """
+        Initialize the TransformerBlock.
+
+        Args:
+            d_model (int): The dimension of the model.
+            n_heads (int): The number of heads.
+            dim_feedforward (int): The dimension of the feed-forward layer.
+            dropout (float, optional): The dropout rate. Defaults to 0.1.
+            causal (bool, optional): Whether to use causal masking. Defaults to True.
+            bayes_dropout (float | None, optional): The dropout rate for Bayesian dropout. Defaults to None.
+            bayes (bool, optional): Whether to use Bayesian dropout. Defaults to False.
+        """
         super().__init__()
         self.self_attn = MultiHeadAttention(
             d_model, n_heads, d_ff=dim_feedforward, causal=causal
@@ -147,7 +211,16 @@ class TransformerBlock(nn.Module):
     def forward(
         self, x: torch.Tensor, mask: torch.Tensor | None = None
     ) -> torch.Tensor:
-        # 1) self-attn
+        """
+        Forward pass through the transformer block.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+            mask (torch.Tensor | None, optional): The mask to use. Defaults to None.
+
+        Returns:
+            torch.Tensor: The output tensor.
+        """
         if self.bayes:
             out = self.self_attn(x, mask=mask)  # (T, B, d_model)
             out = self.norm1(x + F.dropout(out, p=self.bayes_dropout, training=True))
@@ -158,14 +231,21 @@ class TransformerBlock(nn.Module):
             out = self.norm1(x + self.dropout(out))
             out = self.ff(out)  # (T, B, d_model)
             out = self.norm2(x + self.dropout(out))
-            return out
+        return out
 
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model: int, max_len: int = 5000, dropout: float = 0.1):
+        """
+        Initialize the PositionalEncoding.
+
+        Args:
+            d_model (int): The dimension of the model.
+            max_len (int, optional): The maximum length of the sequence. Defaults to 5000.
+            dropout (float, optional): The dropout rate. Defaults to 0.1.
+        """
         super().__init__()
         self.dropout = nn.Dropout(dropout)
-
         pe = torch.zeros(max_len, d_model)  # (max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(
@@ -173,13 +253,18 @@ class PositionalEncoding(nn.Module):
         )
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-
         pe = pe.unsqueeze(1)  # => (max_len, 1, d_model)
         self.register_buffer("pe", pe)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        x shape: (T, B, d_model)
+        Forward pass through the positional encoding.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+
+        Returns:
+            torch.Tensor: The output tensor.
         """
         T, B, E = x.shape
         # add positional encoding up to T steps
@@ -189,10 +274,13 @@ class PositionalEncoding(nn.Module):
 
 def generate_subsequent_mask(sz: int) -> torch.Tensor:
     """
-    Return a (sz, sz) mask:
-    lower-triangular => 0
-    upper-triangular => -inf
-    so that we can't attend to future tokens
+    Generate a subsequent mask.
+
+    Args:
+        sz (int): The size of the mask.
+
+    Returns:
+        torch.Tensor: The subsequent mask.
     """
     mask = torch.full((sz, sz), float("-inf"))
     mask = torch.triu(mask, diagonal=1)
@@ -215,6 +303,19 @@ class MyTransformer(nn.Module):
         bayes_dropout: float | None = None,
         bayes: bool = False,
     ):
+        """
+        Initialize the MyTransformer.
+
+        Args:
+            ntoken (int): The number of tokens.
+            d_model (int): The dimension of the model.
+            n_heads (int): The number of heads.
+            dim_feedforward (int): The dimension of the feed-forward layer.
+            nlayers (int): The number of layers.
+            dropout (float, optional): The dropout rate. Defaults to 0.1.
+            bayes_dropout (float | None, optional): The dropout rate for Bayesian dropout. Defaults to None.
+            bayes (bool, optional): Whether to use Bayesian dropout. Defaults to False.
+        """
         super().__init__()
         self.ntoken = ntoken
         self.d_model = d_model
@@ -238,6 +339,9 @@ class MyTransformer(nn.Module):
         self.bayes_dropout = bayes_dropout
 
     def _init_weights(self) -> None:
+        """
+        Initialize the weights of the model.
+        """
         nn.init.xavier_uniform_(self.embedding.weight)
         nn.init.xavier_uniform_(self.linear_out.weight)
         nn.init.zeros_(self.linear_out.bias)
@@ -249,7 +353,6 @@ class MyTransformer(nn.Module):
         """
         # 1) Embed => (T, B, d_model)
         if self.bayes:
-            # print("bayes")
             x = F.dropout(
                 self.embedding(src), p=self.bayes_dropout, training=True
             ) * math.sqrt(self.d_model)

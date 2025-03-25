@@ -378,7 +378,3 @@ class ReversedPairingTokenizer(Tokenizer):
             str: decoded list of ids
         """
         return self.tokenizer_decoder.decode(encoded_tokens)
-
-
-# tokenizer = ReversedPairingTokenizer()
-# ntokens = tokenizer.vocabulary.ntokens

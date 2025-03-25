@@ -19,15 +19,34 @@ def train(
     vocab_size: int,
     tokenizer: Tokenizer,
     device: str,
-) -> None:
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Train the model.
+
+    Args:
+        model (MyTransformer): The model to train.
+        train_dataset (list[tuple[str, str]]): The training dataset.
+        valid_dataset (list[tuple[str, str]]): The validation dataset.
+        nb_epochs (int): The number of epochs to train for.
+        batch_size (int): The batch size to use for training.
+        lr (float): The learning rate to use for training.
+        vocab_size (int): The size of the vocabulary.
+        tokenizer (Tokenizer): The tokenizer to use for encoding.
+        device (str): The device to run the training on.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: The training and validation losses.
+    """
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
     train_losses = []
     valid_losses = []
     best_valid_loss = float("inf")
+
     for epoch in range(1, nb_epochs + 1):
         train_loss = 0.0
         valid_loss = 0.0
+
         # Training
         model.train()
         for batch_train, i in enumerate(range(0, len(train_dataset) - 1, batch_size)):
@@ -58,6 +77,7 @@ def train(
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
+
         # Validation
         model.eval()
         with torch.no_grad():
@@ -86,14 +106,17 @@ def train(
                 target_answers = target_answers.view(-1)
                 loss = criterion(output_answers, target_answers)
                 valid_loss += loss.item()
+
         train_loss = train_loss / len(train_dataset)
         valid_loss = valid_loss / len(valid_dataset)
         train_losses.append(train_loss)
         valid_losses.append(valid_loss)
+
         if nb_epochs < 10 or epoch % (nb_epochs // 10) == 0:
             print(
-                f"EPOCH [{epoch} / {nb_epochs}] ----------- TRAIN LOSS : {train_loss:.4f}, VALID LOSS : {valid_loss:4f}"
+                f"EPOCH [{epoch} / {nb_epochs}] ----------- TRAIN LOSS : {train_loss:.4f}, VALID LOSS : {valid_loss:.4f}"
             )
+
         # Save model
         if valid_loss < best_valid_loss:
             best_valid_loss = valid_loss
@@ -104,8 +127,19 @@ def train(
 def generate(
     model: MyTransformer, prompts: torch.Tensor, new_tokens: int, device: str
 ) -> torch.Tensor:
-    input_tensor = prompts.to(device)
-    # (prompt_length, batch_size)
+    """
+    Generate new tokens using the model.
+
+    Args:
+        model (MyTransformer): The model to use for generation.
+        prompts (torch.Tensor): The input prompts.
+        new_tokens (int): The number of new tokens to generate.
+        device (str): The device to run the generation on.
+
+    Returns:
+        torch.Tensor: The generated tokens.
+    """
+    input_tensor = prompts.to(device)  # (prompt_length, batch_size)
     for _ in range(new_tokens):
         output = model(input_tensor)  # (prompt_length, batch_size, ntokens)
         logits = output[-1, :, :]  # (batch_size, ntokens)
@@ -120,7 +154,20 @@ def evaluate(
     tokenizer: Tokenizer,
     batch_size: int,
     device: str,
-):
+) -> float:
+    """
+    Evaluate the model on the given dataset.
+
+    Args:
+        model (MyTransformer): The model to evaluate.
+        dataset (list[tuple[str, str]]): The dataset to evaluate on.
+        tokenizer (Tokenizer): The tokenizer to use for encoding.
+        batch_size (int): The batch size to use for evaluation.
+        device (str): The device to run the evaluation on.
+
+    Returns:
+        float: The accuracy of the model on the dataset.
+    """
     model.eval()
     correct = 0.0
     with torch.no_grad():
@@ -142,5 +189,5 @@ def evaluate(
                 answers_tokens == target_answers
             )  # (answers_length + 1, batch_size), contains boolean values
             correct += torch.all(equality_test, axis=0).float().sum()
-        accuracy = correct / len(dataset)
+    accuracy = correct / len(dataset)
     return accuracy.item()
